@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>OpenWire — Public Messenger</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet" />
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0d0f0e;
+    --surface: #141714;
+    --surface2: #1a1d1a;
+    --border: #2a2e2a;
+    --border2: #3a3f3a;
+    --text: #d4e8d4;
+    --text2: #7a9c7a;
+    --text3: #4a6a4a;
+    --accent: #4ade80;
+    --accent2: #22c55e;
+    --accent-dim: rgba(74,222,128,0.12);
+    --accent-border: rgba(74,222,128,0.25);
+    --danger: #f87171;
+    --mono: 'IBM Plex Mono', monospace;
+    --sans: 'IBM Plex Sans', sans-serif;
+    --radius: 6px;
+  }
+
+  html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--mono); overflow: hidden; }
+
+  /* ── OVERLAY ── */
+  #overlay {
+    position: fixed; inset: 0; z-index: 100;
+    background: var(--bg);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .overlay-box {
+    width: 100%; max-width: 400px; padding: 2rem;
+    border: 1px solid var(--border2);
+    background: var(--surface);
+    border-radius: var(--radius);
+  }
+  .overlay-logo {
+    font-size: 22px; font-weight: 600; color: var(--accent); letter-spacing: -0.5px;
+    margin-bottom: 4px;
+  }
+  .overlay-logo span { color: var(--text2); font-weight: 400; font-size: 13px; display: block; margin-top: 2px; }
+  .overlay-divider { border: none; border-top: 1px solid var(--border); margin: 1.25rem 0; }
+  .overlay-label { font-size: 12px; color: var(--text2); margin-bottom: 8px; letter-spacing: 0.05em; text-transform: uppercase; }
+  .overlay-input {
+    width: 100%; background: var(--bg); border: 1px solid var(--border2);
+    color: var(--text); font-family: var(--mono); font-size: 15px;
+    padding: 10px 14px; border-radius: var(--radius); outline: none;
+    transition: border-color 0.15s;
+  }
+  .overlay-input:focus { border-color: var(--accent); }
+  .overlay-input::placeholder { color: var(--text3); }
+  .overlay-btn {
+    margin-top: 14px; width: 100%; padding: 11px;
+    background: var(--accent-dim); border: 1px solid var(--accent-border);
+    color: var(--accent); font-family: var(--mono); font-size: 14px; font-weight: 500;
+    border-radius: var(--radius); cursor: pointer; transition: background 0.15s, border-color 0.15s;
+    letter-spacing: 0.03em;
+  }
+  .overlay-btn:hover { background: rgba(74,222,128,0.2); border-color: var(--accent); }
+  .overlay-note { margin-top: 14px; font-size: 11px; color: var(--text3); line-height: 1.6; }
+  .overlay-err { color: var(--danger); font-size: 12px; margin-top: 8px; display: none; }
+
+  /* ── APP SHELL ── */
+  #app { display: none; height: 100%; flex-direction: column; }
+  #app.active { display: flex; }
+
+  /* header */
+  .header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 20px; height: 52px; border-bottom: 1px solid var(--border);
+    background: var(--surface); flex-shrink: 0;
+  }
+  .header-left { display: flex; align-items: center; gap: 14px; }
+  .logo { font-size: 16px; font-weight: 600; color: var(--accent); letter-spacing: -0.3px; }
+  .badge {
+    font-size: 10px; padding: 2px 8px; border-radius: 99px;
+    background: var(--accent-dim); border: 1px solid var(--accent-border);
+    color: var(--accent); letter-spacing: 0.05em;
+  }
+  .badge.live::before { content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin-right: 5px; animation: pulse 1.5s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+  .header-right { display: flex; align-items: center; gap: 12px; }
+  .alias-chip {
+    font-size: 12px; color: var(--text2); padding: 3px 10px;
+    border: 1px solid var(--border); border-radius: 99px;
+  }
+  .alias-chip strong { color: var(--text); }
+  .leave-btn {
+    font-size: 12px; color: var(--text3); background: none; border: 1px solid var(--border);
+    padding: 3px 10px; border-radius: 99px; cursor: pointer; font-family: var(--mono);
+    transition: color 0.1s, border-color 0.1s;
+  }
+  .leave-btn:hover { color: var(--danger); border-color: var(--danger); }
+
+  /* messages area */
+  #messages {
+    flex: 1; overflow-y: auto; padding: 20px 20px 8px;
+    display: flex; flex-direction: column; gap: 2px;
+    scroll-behavior: smooth;
+  }
+  #messages::-webkit-scrollbar { width: 4px; }
+  #messages::-webkit-scrollbar-track { background: transparent; }
+  #messages::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+  /* message rows */
+  .msg-row { display: flex; align-items: flex-start; gap: 10px; padding: 4px 0; }
+  .msg-row.own { flex-direction: row-reverse; }
+  .avatar {
+    width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 600; letter-spacing: 0; margin-top: 2px;
+  }
+  .msg-body { max-width: 68%; }
+  .msg-meta { font-size: 10px; color: var(--text3); margin-bottom: 3px; }
+  .msg-row.own .msg-meta { text-align: right; }
+  .msg-bubble {
+    display: inline-block; padding: 8px 12px; border-radius: var(--radius);
+    font-size: 13px; line-height: 1.55; word-break: break-word;
+    font-family: var(--sans);
+  }
+  .msg-row:not(.own) .msg-bubble {
+    background: var(--surface2); border: 1px solid var(--border);
+    color: var(--text); border-radius: 2px var(--radius) var(--radius) var(--radius);
+  }
+  .msg-row.own .msg-bubble {
+    background: var(--accent-dim); border: 1px solid var(--accent-border);
+    color: var(--text); border-radius: var(--radius) 2px var(--radius) var(--radius);
+    display: block;
+  }
+  .msg-row.own .msg-body { display: flex; flex-direction: column; align-items: flex-end; }
+
+  /* system messages */
+  .sys-msg {
+    text-align: center; font-size: 11px; color: var(--text3);
+    padding: 6px 0; letter-spacing: 0.04em;
+  }
+
+  /* date divider */
+  .date-divider {
+    display: flex; align-items: center; gap: 10px;
+    margin: 10px 0; font-size: 10px; color: var(--text3); letter-spacing: 0.07em;
+  }
+  .date-divider::before, .date-divider::after {
+    content: ''; flex: 1; height: 1px; background: var(--border);
+  }
+
+  /* loading skeleton */
+  .skeleton { display: flex; gap: 10px; padding: 4px 0; }
+  .sk-avatar { width: 28px; height: 28px; border-radius: 50%; background: var(--surface2); animation: sk 1.2s ease infinite; }
+  .sk-lines { display: flex; flex-direction: column; gap: 6px; padding-top: 4px; }
+  .sk-line { height: 10px; background: var(--surface2); border-radius: 4px; animation: sk 1.2s ease infinite; }
+  @keyframes sk { 0%,100%{opacity:0.4} 50%{opacity:0.9} }
+
+  /* composer */
+  .composer {
+    display: flex; gap: 10px; align-items: flex-end;
+    padding: 12px 20px 16px; border-top: 1px solid var(--border);
+    background: var(--surface); flex-shrink: 0;
+  }
+  #msgInput {
+    flex: 1; background: var(--bg); border: 1px solid var(--border2);
+    color: var(--text); font-family: var(--sans); font-size: 14px;
+    padding: 10px 14px; border-radius: var(--radius); outline: none;
+    resize: none; line-height: 1.5; max-height: 120px; min-height: 42px;
+    transition: border-color 0.15s;
+  }
+  #msgInput:focus { border-color: var(--accent); }
+  #msgInput::placeholder { color: var(--text3); }
+  #sendBtn {
+    flex-shrink: 0; width: 42px; height: 42px;
+    background: var(--accent-dim); border: 1px solid var(--accent-border);
+    color: var(--accent); border-radius: var(--radius); cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.15s; font-size: 18px;
+  }
+  #sendBtn:hover { background: rgba(74,222,128,0.22); }
+  #sendBtn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+  /* status bar */
+  .statusbar {
+    height: 24px; background: var(--bg); border-top: 1px solid var(--border);
+    display: flex; align-items: center; padding: 0 20px;
+    font-size: 10px; color: var(--text3); gap: 16px; flex-shrink: 0;
+  }
+  .statusbar span { display: flex; align-items: center; gap: 5px; }
+
+  /* ── SETUP INSTRUCTIONS ── */
+  #setup-screen {
+    display: none; height: 100%; align-items: center; justify-content: center;
+    flex-direction: column; gap: 20px; padding: 2rem; text-align: center;
+  }
+  #setup-screen.active { display: flex; }
+  .setup-box {
+    max-width: 560px; background: var(--surface); border: 1px solid var(--border2);
+    border-radius: var(--radius); padding: 2rem;
+  }
+  .setup-title { font-size: 18px; color: var(--accent); margin-bottom: 12px; font-weight: 600; }
+  .setup-text { font-size: 13px; color: var(--text2); line-height: 1.75; }
+  .setup-text code {
+    background: var(--bg); border: 1px solid var(--border);
+    padding: 1px 6px; border-radius: 3px; font-size: 12px; color: var(--text);
+  }
+  .setup-inputs { display: flex; flex-direction: column; gap: 10px; margin-top: 16px; }
+  .setup-input {
+    background: var(--bg); border: 1px solid var(--border2); color: var(--text);
+    font-family: var(--mono); font-size: 13px; padding: 9px 12px;
+    border-radius: var(--radius); outline: none; width: 100%;
+  }
+  .setup-input:focus { border-color: var(--accent); }
+  .setup-input::placeholder { color: var(--text3); }
+  .setup-btn {
+    margin-top: 4px; width: 100%; padding: 10px;
+    background: var(--accent-dim); border: 1px solid var(--accent-border);
+    color: var(--accent); font-family: var(--mono); font-size: 13px;
+    border-radius: var(--radius); cursor: pointer;
+  }
+  .setup-btn:hover { background: rgba(74,222,128,0.2); }
+</style>
+</head>
+<body>
+
+<!-- ── SETUP SCREEN (shown if no Supabase config) ── -->
+<div id="setup-screen">
+  <div class="setup-box">
+    <div class="setup-title">⚡ OpenWire Setup</div>
+    <p class="setup-text">
+      Enter your Supabase project credentials below.<br>
+      Then run this SQL in your Supabase SQL editor to create the messages table:
+    </p>
+    <pre style="text-align:left;background:var(--bg);border:1px solid var(--border);padding:1rem;border-radius:var(--radius);font-size:11px;color:var(--text2);margin-top:14px;line-height:1.8;overflow-x:auto">
+
+    </pre>
+    <div class="setup-inputs">
+      <input class="setup-input" id="cfgUrl" placeholder="Supabase URL (https://xxxx.supabase.co)" />
+      <input class="setup-input" id="cfgKey" placeholder="Supabase anon key" />
+      <button class="setup-btn" onclick="saveConfig()">Save & Connect →</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── NAME OVERLAY ── -->
+<div id="overlay">
+  <div class="overlay-box">
+    <div class="overlay-logo">
+      ⚡ OpenWire
+      <span>public real-time messenger</span>
+    </div>
+    <hr class="overlay-divider" />
+    <div class="overlay-label">Your alias</div>
+    <input class="overlay-input" id="aliasInput" placeholder="enter a name to join..." maxlength="30" autofocus />
+    <div class="overlay-err" id="aliasErr">Please enter a name.</div>
+    <button class="overlay-btn" id="joinBtn">Join the wire →</button>
+    <div class="overlay-note">Your alias is temporary — it resets when you refresh. No account needed. Messages are visible to everyone.</div>
+  </div>
+</div>
+
+<!-- ── MAIN APP ── -->
+<div id="app">
+  <div class="header">
+    <div class="header-left">
+      <div class="logo">⚡ OpenWire</div>
+      <div class="badge live" id="statusBadge">connecting</div>
+    </div>
+    <div class="header-right">
+      <div class="alias-chip">you are <strong id="headerAlias">—</strong></div>
+      <button class="leave-btn" onclick="leaveWire()">leave</button>
+    </div>
+  </div>
+
+  <div id="messages">
+    <div class="skeleton"><div class="sk-avatar"></div><div class="sk-lines"><div class="sk-line" style="width:120px"></div><div class="sk-line" style="width:220px"></div></div></div>
+    <div class="skeleton"><div class="sk-avatar"></div><div class="sk-lines"><div class="sk-line" style="width:80px"></div><div class="sk-line" style="width:160px"></div></div></div>
+    <div class="skeleton"><div class="sk-avatar"></div><div class="sk-lines"><div class="sk-line" style="width:100px"></div><div class="sk-line" style="width:280px"></div></div></div>
+  </div>
+
+  <div class="composer">
+    <textarea id="msgInput" rows="1" placeholder="type a message…" maxlength="1000"></textarea>
+    <button id="sendBtn" title="Send">&#9658;</button>
+  </div>
+
+  <div class="statusbar">
+    <span id="sbStatus">● connecting…</span>
+    <span id="sbCount"></span>
+  </div>
+</div>
+
+<script>
+// ─── CONFIG ───────────────────────────────────────────────────────────────
+const LS_URL = 'https://fdwgjpgjorbdfmvsjsqf.supabase.co';
+const LS_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZkd2dqcGdqb3JiZGZtdnNqc3FmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3MjY5NTAsImV4cCI6MjA5NTMwMjk1MH0.oW7i4qARYo3YR8-BGYe0XIp-RXe1mYryreNqf0jRLfY';
+
+let SUPABASE_URL = localStorage.getItem(LS_URL) || '';
+let SUPABASE_KEY = localStorage.getItem(LS_KEY) || '';
+
+function saveConfig() {
+  const url = document.getElementById('cfgUrl').value.trim();
+  const key = document.getElementById('cfgKey').value.trim();
+  if (!url || !key) return alert('Both fields are required.');
+  localStorage.setItem(LS_URL, url);
+  localStorage.setItem(LS_KEY, key);
+  location.reload();
+}
+
+// ─── STATE ────────────────────────────────────────────────────────────────
+let supabase, alias, channel;
+let messageCache = [];
+let msgCount = 0;
+
+// ─── COLORS ───────────────────────────────────────────────────────────────
+const COLORS = [
+  ['#1d4ed8','#bfdbfe'],['#7c3aed','#ddd6fe'],['#db2777','#fce7f3'],
+  ['#b45309','#fef3c7'],['#065f46','#d1fae5'],['#9f1239','#fee2e2'],
+  ['#1e40af','#dbeafe'],['#6d28d9','#ede9fe'],
+];
+function colorFor(name) {
+  let h = 0; for (let c of name) h = (h * 31 + c.charCodeAt(0)) & 0xffffffff;
+  const [bg, fg] = COLORS[Math.abs(h) % COLORS.length];
+  return { bg, fg };
+}
+function initials(name) {
+  return name.split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0,2);
+}
+
+// ─── INIT ─────────────────────────────────────────────────────────────────
+if (!SUPABASE_URL || !SUPABASE_KEY) {
+  document.getElementById('setup-screen').classList.add('active');
+  document.getElementById('overlay').style.display = 'none';
+} else {
+  supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  initOverlay();
+}
+
+function initOverlay() {
+  const input = document.getElementById('aliasInput');
+  document.getElementById('joinBtn').onclick = joinWire;
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') joinWire(); });
+}
+
+async function joinWire() {
+  const val = document.getElementById('aliasInput').value.trim();
+  const err = document.getElementById('aliasErr');
+  if (!val) { err.style.display = 'block'; return; }
+  err.style.display = 'none';
+  alias = val;
+  document.getElementById('overlay').style.display = 'none';
+  document.getElementById('headerAlias').textContent = alias;
+  document.getElementById('app').classList.add('active');
+  await loadMessages();
+  subscribeRealtime();
+}
+
+function leaveWire() {
+  if (channel) supabase.removeChannel(channel);
+  alias = null;
+  messageCache = [];
+  document.getElementById('app').classList.remove('active');
+  document.getElementById('overlay').style.display = 'flex';
+  document.getElementById('aliasInput').value = '';
+  document.getElementById('messages').innerHTML = '';
+  document.getElementById('sbCount').textContent = '';
+}
+
+// ─── LOAD ─────────────────────────────────────────────────────────────────
+async function loadMessages() {
+  try {
+    const { data, error } = await supabase
+      .from('messages')
+      .select('*')
+      .order('created_at', { ascending: true })
+      .limit(200);
+
+    if (error) throw error;
+
+    const container = document.getElementById('messages');
+    container.innerHTML = '';
+    messageCache = data || [];
+    msgCount = messageCache.length;
+
+    if (messageCache.length === 0) {
+      container.innerHTML = '<div class="sys-msg">no messages yet — say hello 👋</div>';
+    } else {
+      let lastDate = null;
+      for (const msg of messageCache) {
+        const d = new Date(msg.created_at);
+        const dateStr = d.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
+        if (dateStr !== lastDate) {
+          lastDate = dateStr;
+          container.insertAdjacentHTML('beforeend', `<div class="date-divider">${dateStr}</div>`);
+        }
+        container.insertAdjacentHTML('beforeend', renderMessage(msg));
+      }
+    }
+
+    setBadge('live', 'live');
+    document.getElementById('sbStatus').textContent = '● connected';
+    document.getElementById('sbCount').textContent = `${msgCount} message${msgCount !== 1 ? 's' : ''}`;
+    scrollBottom();
+  } catch(e) {
+    console.error(e);
+    setBadge('error', 'error');
+    document.getElementById('sbStatus').textContent = '● error — check config';
+  }
+}
+
+// ─── RENDER ───────────────────────────────────────────────────────────────
+function renderMessage(msg) {
+  const isOwn = msg.alias === alias;
+  const { bg, fg } = colorFor(msg.alias);
+  const ini = initials(msg.alias);
+  const time = new Date(msg.created_at).toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit' });
+  return `
+    <div class="msg-row${isOwn ? ' own' : ''}">
+      <div class="avatar" style="background:${bg};color:${fg}">${ini}</div>
+      <div class="msg-body">
+        <div class="msg-meta">${isOwn ? '' : escHtml(msg.alias) + ' · '}${time}</div>
+        <div class="msg-bubble">${escHtml(msg.content)}</div>
+      </div>
+    </div>`;
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ─── REALTIME ─────────────────────────────────────────────────────────────
+function subscribeRealtime() {
+  channel = supabase
+    .channel('public-messages')
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, payload => {
+      const msg = payload.new;
+      // avoid duplicate if we sent it ourselves (optimistic)
+      if (messageCache.find(m => m.id === msg.id)) return;
+      messageCache.push(msg);
+      msgCount++;
+
+      const container = document.getElementById('messages');
+      const noMsg = container.querySelector('.sys-msg');
+      if (noMsg) noMsg.remove();
+
+      container.insertAdjacentHTML('beforeend', renderMessage(msg));
+      document.getElementById('sbCount').textContent = `${msgCount} message${msgCount !== 1 ? 's' : ''}`;
+      scrollBottom();
+    })
+    .subscribe(status => {
+      if (status === 'SUBSCRIBED') {
+        setBadge('live', 'live');
+        document.getElementById('sbStatus').textContent = '● connected';
+      } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
+        setBadge('', 'offline');
+        document.getElementById('sbStatus').textContent = '● disconnected';
+      }
+    });
+}
+
+// ─── SEND ─────────────────────────────────────────────────────────────────
+const input = document.getElementById('msgInput');
+const btn = document.getElementById('sendBtn');
+
+input.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+});
+input.addEventListener('input', () => {
+  input.style.height = 'auto';
+  input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+  btn.disabled = !input.value.trim();
+});
+btn.addEventListener('click', sendMessage);
+btn.disabled = true;
+
+async function sendMessage() {
+  const text = input.value.trim();
+  if (!text || !alias) return;
+
+  input.value = '';
+  input.style.height = '42px';
+  btn.disabled = true;
+
+  // optimistic render
+  const optimistic = { id: 'opt-' + Date.now(), alias, content: text, created_at: new Date().toISOString() };
+  messageCache.push(optimistic);
+  msgCount++;
+  const container = document.getElementById('messages');
+  const noMsg = container.querySelector('.sys-msg');
+  if (noMsg) noMsg.remove();
+  container.insertAdjacentHTML('beforeend', renderMessage(optimistic));
+  document.getElementById('sbCount').textContent = `${msgCount} message${msgCount !== 1 ? 's' : ''}`;
+  scrollBottom();
+
+  try {
+    const { data, error } = await supabase.from('messages').insert({ alias, content: text }).select().single();
+    if (error) throw error;
+    // patch optimistic id
+    const idx = messageCache.findIndex(m => m.id === optimistic.id);
+    if (idx !== -1) messageCache[idx] = data;
+  } catch(e) {
+    console.error('Send failed:', e);
+    // remove optimistic on fail
+    const idx = messageCache.findIndex(m => m.id === optimistic.id);
+    if (idx !== -1) messageCache.splice(idx, 1);
+    const rows = container.querySelectorAll('.msg-row.own');
+    const last = rows[rows.length - 1];
+    if (last) last.remove();
+    msgCount--;
+  }
+}
+
+// ─── HELPERS ──────────────────────────────────────────────────────────────
+function scrollBottom() {
+  const el = document.getElementById('messages');
+  setTimeout(() => el.scrollTop = el.scrollHeight, 30);
+}
+
+function setBadge(cls, label) {
+  const b = document.getElementById('statusBadge');
+  b.className = 'badge' + (cls ? ' ' + cls : '');
+  b.textContent = label;
+}
+</script>
+</body>
+</html>
